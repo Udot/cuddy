@@ -79,7 +79,7 @@ hostname = Socket.gethostbyname(Socket.gethostname).first
 @config = @init_config[environment]
 @redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['database'])
 
-
+# this one does care about db config
 def normal_start(app)
   begin
     name = app['name']
@@ -136,6 +136,7 @@ def normal_start(app)
   @redis.set(name, status)
 end
 
+# this one doesn't care about the db config
 def backoffice_start(app)
   begin
     name = app['name']
@@ -143,18 +144,20 @@ def backoffice_start(app)
     logger("info", "starting deployment for #{name} #{version}")
     status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
     start_time = status['started_at']
+    deploy_to = "/var/www/#{name}"
     # stop the app
-    stop_log = `/etc/init.d/unicorn_backoffice stop`
+    unicorn_pid = `cat /var/www/shared/pids/unicorn-#{name}.pid`
+    stop_log = `kill -QUIT #{unicorn_pid}`
     @logger.info("stopping old unicorn #{name} #{version}")
     status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
     @redis.set(name, status)
     
     # point the current dir to the right version
-    FileUtils.rm("/var/www/#{name}/current") if File.exist?("/var/www/#{name}/current")
-    FileUtils.ln_s("/var/www/#{name}/#{version}", "/var/www/#{name}/current")
+    FileUtils.rm("#{deploy_to}/current") if File.exist?("#{deploy_to}/current")
+    FileUtils.ln_s("#{deploy_to}/#{version}", "#{deploy_to}/current")
 
     # start the unicorn using init
-    start_log = `/etc/init.d/unicorn_backoffice start`
+    start_log = `cd #{deploy_to}/current && bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru`
     @logger.info("started new unicorn #{name} #{version}")
   rescue => e
     p e.message
@@ -207,6 +210,13 @@ def deploy(app)
     Dir.chdir('/var/www')
     extract_log = `tar -xzf /tmp/#{img}`
     $?.to_i == 0 ? logger("info", "downloaded file #{img}") : raise SystemCallError, "extraction of #{img} failed"
+
+    # starting the app stuff
+    if app['backoffice']
+      backoffice_start(app)
+    else
+      normal_start(app)
+    end
   rescue => e
     p e.message
     p e.backtrace

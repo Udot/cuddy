@@ -54,14 +54,6 @@ class SimpleLogger
   end
 end
 
-if environment == "production"
-  require_relative 'lib/remote_syslog'
-  @logger = RemoteSyslogLogger.new(Settings.remote_log_host,Settings.remote_log_port)
-else
-  Dir.mkdir(@current_path + "/log") unless File.exist?(@current_path + "/log")
-  @logger = SimpleLogger.new(@current_path + "/log/development.log")
-end
-
 @init_config = YAML.load_file("#{@current_path}/config.yml")
 
 # generate uniq token if not present
@@ -78,6 +70,14 @@ hostname = Socket.gethostbyname(Socket.gethostname).first
 @identity = {"hostname" => hostname, "token" => @cuddy_token}
 @config = @init_config[environment]
 @redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['database'])
+
+if environment == "production"
+  require_relative 'lib/remote_syslog'
+  @logger = RemoteSyslogLogger.new(config["remote_log_host"],config["remote_log_port"])
+else
+  Dir.mkdir(@current_path + "/log") unless File.exist?(@current_path + "/log")
+  @logger = SimpleLogger.new(@current_path + "/log/development.log")
+end
 
 # this one does care about db config
 def normal_start(app)

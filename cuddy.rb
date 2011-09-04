@@ -208,7 +208,7 @@ def deploy(app)
     @logger.info("downloaded file #{img}")
 
     # extract
-    Dir.chdir('/var/www')
+    Dir.chdir("/var/www/#{app['name']}")
     extract_log = `tar -xzf /tmp/#{img}`
     $?.to_i == 0 ? logger("info", "downloaded file #{img}") : raise SystemCallError, "extraction of #{img} failed"
 

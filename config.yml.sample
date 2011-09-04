@@ -11,6 +11,7 @@
   "rackspace_api_key": "thekey"
   "rackspace_username": "theusername"
   "logfile": 'builder.log'
+  "cuddy_token": "cezfreg"
 "production":
   "sleeptime": 300
   "redis":
@@ -24,4 +25,5 @@
     "rackspace_api_key": "thekey"
     "rackspace_username": "theusername"
     "logfile": '/var/log/pinpin_builder/builder.log'
+    "cuddy_token": "zefqzg"
 

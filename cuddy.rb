@@ -27,7 +27,7 @@ end
 
 def generate_token
   arh = Array.new
-  (1..9).each { |i| arh << i }
+  (1..9).each { |i| arh << i.to_s }
   ("a".."z").each { |i| arh << i }
   ("A".."Z").each { |i| arh << i }
   4.times { arh.shuffle! }
@@ -177,6 +177,7 @@ end
 #   "status" => string,         # starts with "waiting"
 #   "started_at" => datetime,   # the time when the app was added in the queue
 #   "finished_at" => datetime,  # the time when the app was properly deployed
+#   "backoffice" => boolean     # hoy
 #   "config" => { "unicorn" => { "workers" => integer },
 #     "db" => {"hostname" => string, "database" => string, "username" => string, "token" => string}
 #   }

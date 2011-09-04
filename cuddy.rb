@@ -85,7 +85,7 @@ def normal_start(app)
   begin
     name = app['name']
     version = app['version']
-    @logger("info", "starting deployment for #{name} #{version}")
+    @logger.info("starting deployment for #{name} #{version}")
     status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
     start_time = status['started_at']
     # stop the app
@@ -142,7 +142,7 @@ def backoffice_start(app)
   begin
     name = app['name']
     version = app['version']
-    @logger("info", "starting deployment for #{name} #{version}")
+    @logger.info("starting deployment for #{name} #{version}")
     status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
     start_time = status['started_at']
     deploy_to = "/var/www/#{name}"
@@ -189,7 +189,7 @@ def deploy(app)
     img = "#{app['name']}-#{app['version']}.tgz"
     name = app['name']
     version = app['version']
-    @logger("info", "starting deployment for #{name} #{version}")
+    @logger.info("starting deployment for #{name} #{version}")
     status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
     start_time = status['started_at']
 
@@ -212,7 +212,7 @@ def deploy(app)
     Dir.chdir("/var/www/#{app['name']}")
     extract_log = `tar -xzf /tmp/#{img}`
     if $?.to_i == 0
-      @logger("info", "downloaded file #{img}")
+      @logger.info("downloaded file #{img}")
     else
       raise SystemCallError, "extraction of #{img} failed"
     end
@@ -233,8 +233,8 @@ def deploy(app)
 end
 
 while true
-  # TODO : change, check a key in redis equal to uniq token of the cuddy node
-  queue = JSON.parse(@redis.get(@cuddy_token))
+  queue = JSON.parse(@redis.get(@cuddy_token)) unless @redis.get(@cuddy_token) == nil
+  queue ||= Array.new
   while queue.size > 0
     app = queue.pop
     deploy(app)

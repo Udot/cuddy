@@ -145,10 +145,15 @@ def backoffice_start(app)
     @logger.info("starting deployment for #{name} #{version}")
     status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
     start_time = status['started_at']
-    deploy_to = "/var/www/#{name}"
+    deploy_to = "/var/www/hosts/#{name}"
+    shared = "#{deploy_to}/shared"
     # stop the app
-    unicorn_pid = `cat /var/www/shared/pids/unicorn-#{name}.pid`
-    stop_log = `kill -QUIT #{unicorn_pid}`
+    FileUtils.mkdir_p("#{shared}/log") unless File.exist?("#{shared}/log")
+    FileUtils.mkdir_p("#{shared}/pids") unless File.exist?("#{shared}/pids")
+    if File.exist?("cat #{shared}/pids/unicorn-#{name}.pid")
+      unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
+      stop_log = `kill -QUIT #{unicorn_pid}`
+    end
     @logger.info("stopping old unicorn #{name} #{version}")
     status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
     @status_redis.set(name, status)
@@ -209,7 +214,8 @@ def deploy(app)
     @logger.info("downloaded file #{img}")
 
     # extract
-    Dir.chdir("/var/www/#{app['name']}")
+    FileUtils.mkdir("/var/www/hosts/#{app['name']}") unless File.exist?("/var/www/hosts/#{app['name']}")
+    Dir.chdir("/var/www/hosts/#{app['name']}")
     extract_log = `tar -xzf /tmp/#{img}`
     if $?.to_i == 0
       @logger.info("downloaded file #{img}")

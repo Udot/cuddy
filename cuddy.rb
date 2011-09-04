@@ -190,7 +190,7 @@ def deploy(app)
     name = app['name']
     version = app['version']
     @logger.info("starting deployment for #{name} #{version}")
-    status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
+    status = JSON.parse(@status_redis.get(name)) if (@status_redis.get(name) != nil)
     start_time = status['started_at']
 
     status = {"status" => "deploying", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json

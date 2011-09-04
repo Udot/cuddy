@@ -186,7 +186,7 @@ end
 def deploy(app)
   begin
     # get the file from cloudfiles
-    img = "#{app['name']}-#{app['version']}.tgz"
+    img = "#{app['name']}-#{app['version']}.tar.gz"
     name = app['name']
     version = app['version']
     @logger.info("starting deployment for #{name} #{version}")

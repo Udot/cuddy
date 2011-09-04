@@ -70,6 +70,7 @@ hostname = Socket.gethostbyname(Socket.gethostname).first
 @identity = {"hostname" => hostname, "token" => @cuddy_token}
 @config = @init_config[environment]
 @redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['db'])
+@status_redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => 3)
 
 if environment == "production"
   require_relative 'lib/remote_syslog'
@@ -91,7 +92,7 @@ def normal_start(app)
     stop_log = `/etc/init.d/unicorn_cuddy stop`
     @logger.info("stopping old unicorn #{name} #{version}")
     status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-    @redis.set(name, status)
+    @status_redis.set(name, status)
 
     # point the current dir to the right version
     FileUtils.rm("/var/www/current") if File.exist?("/var/www/current")
@@ -129,11 +130,11 @@ def normal_start(app)
     p e.backtrace
     @logger.error(e.message)
     status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-    @redis.set(repository, status)
+    @status_redis.set(repository, status)
   end
   @logger.info("finished deployment for #{name} #{version}")
   status = {"status" => "started", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-  @redis.set(name, status)
+  @status_redis.set(name, status)
 end
 
 # this one doesn't care about the db config
@@ -150,7 +151,7 @@ def backoffice_start(app)
     stop_log = `kill -QUIT #{unicorn_pid}`
     @logger.info("stopping old unicorn #{name} #{version}")
     status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-    @redis.set(name, status)
+    @status_redis.set(name, status)
     
     # point the current dir to the right version
     FileUtils.rm("#{deploy_to}/current") if File.exist?("#{deploy_to}/current")
@@ -164,11 +165,11 @@ def backoffice_start(app)
     p e.backtrace
     @logger.error(e.message)
     status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-    @redis.set(repository, status)
+    @status_redis.set(repository, status)
   end
   @logger.info("finished deployment for #{name} #{version}")
   status = {"status" => "started", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-  @redis.set(name, status)
+  @status_redis.set(name, status)
 end
 
 # expect hash :
@@ -193,7 +194,7 @@ def deploy(app)
     start_time = status['started_at']
 
     status = {"status" => "deploying", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-    @redis.set(name, status)
+    @status_redis.set(name, status)
     rs_dor = ""
     if is_linux?
       rs_dir = "sqshed_apps"
@@ -227,7 +228,7 @@ def deploy(app)
     p e.backtrace
     @logger.error(e.message)
     status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-    @redis.set(repository, status)
+    @status_redis.set(name, status)
   end
 end
 

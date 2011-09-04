@@ -199,7 +199,7 @@ def deploy(app)
       rs_dir = "sqshed_apps"
     elsif is_mac?
       rs_dir = "sqshed_apps_test"
-    else
+    end
 
     storage = Fog::Storage.new(:provider => 'Rackspace', :rackspace_auth_url => @config["rackspace_auth_url"], :rackspace_api_key => @config["rackspace_api_key"], :rackspace_username => @config['rackspace_username'])
     directory = storage.directories.get(rs_dir)
@@ -210,7 +210,11 @@ def deploy(app)
     # extract
     Dir.chdir("/var/www/#{app['name']}")
     extract_log = `tar -xzf /tmp/#{img}`
-    $?.to_i == 0 ? logger("info", "downloaded file #{img}") : raise SystemCallError, "extraction of #{img} failed"
+    if $?.to_i == 0
+      logger("info", "downloaded file #{img}")
+    else
+      raise SystemCallError, "extraction of #{img} failed"
+    end
 
     # starting the app stuff
     if app['backoffice']
@@ -229,7 +233,7 @@ end
 
 while true
   # TODO : change, check a key in redis equal to uniq token of the cuddy node
-  queue = JSON.parse(@redis.get(@cuddy_token)
+  queue = JSON.parse(@redis.get(@cuddy_token))
   while queue.size > 0
     app = queue.pop
     deploy(app)

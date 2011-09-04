@@ -143,7 +143,8 @@ def backoffice_start(app)
     name = app['name']
     version = app['version']
     @logger.info("starting deployment for #{name} #{version}")
-    status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
+    status = JSON.parse(@status_redis.get(name)) if (@status_redis.get(name) != nil)
+    status ||= {"status" => "starting", "version" => version, "started_at" => Time.now.to_s, "finished_at" => "", "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
     start_time = status['started_at']
     deploy_to = "/var/www/hosts/#{name}"
     shared = "#{deploy_to}/shared"

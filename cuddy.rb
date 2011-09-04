@@ -151,7 +151,7 @@ def backoffice_start(app)
     # stop the app
     FileUtils.mkdir_p("#{shared}/log") unless File.exist?("#{shared}/log")
     FileUtils.mkdir_p("#{shared}/pids") unless File.exist?("#{shared}/pids")
-    if File.exist?("cat #{shared}/pids/unicorn-#{name}.pid")
+    if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
       unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
       stop_log = `kill -QUIT #{unicorn_pid}`
     end
@@ -162,10 +162,19 @@ def backoffice_start(app)
     # point the current dir to the right version
     FileUtils.rm("#{deploy_to}/current") if File.exist?("#{deploy_to}/current")
     FileUtils.ln_s("#{deploy_to}/#{version}", "#{deploy_to}/current")
+    
+    # copy the database conf if present
+    if File.exist?("#{shared}/conf/database.yml")
+      FileUtils.cp("#{shared}/conf/database.yml", "#{deploy_to}/current/config/database.yml")
+    end
 
     # start the unicorn using init
     start_log = `cd #{deploy_to}/current && bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru`
-    @logger.info("started new unicorn #{name} #{version}")
+    if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
+      @logger.info("started new unicorn #{name} #{version}")
+    else
+      @logger.warn("something failed when starting unicorn for #{name} #{version}")
+    end
   rescue => e
     p e.message
     p e.backtrace

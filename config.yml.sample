@@ -11,11 +11,6 @@
   "rackspace_api_key": "thekey"
   "rackspace_username": "theusername"
   "logfile": 'builder.log'
-  "db":
-    "hostname": "something"
-    "database": "something"
-    "username": "something"
-    "token": "oulalala"
 "production":
   "sleeptime": 300
   "redis":
@@ -29,9 +24,4 @@
     "rackspace_api_key": "thekey"
     "rackspace_username": "theusername"
     "logfile": '/var/log/pinpin_builder/builder.log'
-  "db":
-    "hostname": "something"
-    "database": "something"
-    "username": "something"
-    "token": "oulalala"
 

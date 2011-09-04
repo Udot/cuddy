@@ -154,6 +154,7 @@ def backoffice_start(app)
     if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
       unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
       stop_log = `kill -QUIT #{unicorn_pid}`
+      FileUtils.rm("#{shared}/pids/unicorn-#{name}.pid")
     end
     @logger.info("stopping old unicorn #{name} #{version}")
     status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json

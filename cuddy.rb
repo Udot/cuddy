@@ -177,7 +177,7 @@ end
 #   "status" => string,         # starts with "waiting"
 #   "started_at" => datetime,   # the time when the app was added in the queue
 #   "finished_at" => datetime,  # the time when the app was properly deployed
-#   "backoffice" => boolean     # hoy
+#   "side" => string            # backoffice / frontoffice
 #   "config" => { "unicorn" => { "workers" => integer },
 #     "db" => {"hostname" => string, "database" => string, "username" => string, "token" => string}
 #   }
@@ -217,7 +217,7 @@ def deploy(app)
     end
 
     # starting the app stuff
-    if app['backoffice']
+    if app['side'] == "backoffice"
       backoffice_start(app)
     else
       normal_start(app)

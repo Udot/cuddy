@@ -69,11 +69,11 @@ end
 hostname = Socket.gethostbyname(Socket.gethostname).first
 @identity = {"hostname" => hostname, "token" => @cuddy_token}
 @config = @init_config[environment]
-@redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['database'])
+@redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['db'])
 
 if environment == "production"
   require_relative 'lib/remote_syslog'
-  @logger = RemoteSyslogLogger.new(config["remote_log_host"],config["remote_log_port"])
+  @logger = RemoteSyslogLogger.new(@config["remote_log_host"],@config["remote_log_port"])
 else
   Dir.mkdir(@current_path + "/log") unless File.exist?(@current_path + "/log")
   @logger = SimpleLogger.new(@current_path + "/log/development.log")

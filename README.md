@@ -8,7 +8,7 @@ Cuddy is a deployer node. It picks up a queue (jsoned array) in a Redis server u
        "status" => string,          #starts with "waiting"
        "started_at" => datetime,    #the time when the app was added in the queue
        "finished_at" => datetime,   #the time when the app was properly deployed
-       "backoffice" => boolean      # is the app a backoffice thing (will not create db and use different init script)
+       "backoffice" => boolean,      # is the app a backoffice thing (will not create db and use different init script)
        "config" => { "unicorn" => { "workers" => integer },
          "db" => {"hostname" => string, "database" => string, "username" => string, "token" => string}
        }

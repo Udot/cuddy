@@ -31,7 +31,7 @@ class Harry < Thor
     name = "cuddy"
     url = "git://github.com/Udot/cuddy.git"
     bundler = "true"
-    payload = {"name" => name, "repository" => url, "bundler" => "lah"}
+    payload = {"name" => name, "repository" => url, "bundler" => "lah", "no_register" => 1}
     SimpleApi.post("/",payload)
   end
 end

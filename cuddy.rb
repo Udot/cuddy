@@ -1,9 +1,10 @@
 # encoding : utf-8
 require "rubygems"
-require "bundler/setup"
-
-# get all the gems in
-Bundler.require(:default)
+require "redis"
+require "json"
+require "fog"
+require "thor"
+require "daemons"
 require "digest/sha1"
 require "yaml"
 require "fileutils"
@@ -165,23 +166,26 @@ def backoffice_start(app)
     FileUtils.ln_s("#{deploy_to}/#{version}", "#{deploy_to}/current")
     
     # copy the database conf if present
-    if File.exist?("#{shared}/conf/database.yml")
-      FileUtils.cp("#{shared}/conf/database.yml", "#{deploy_to}/current/config/database.yml")
+    if File.exist?("#{shared}/config")
+      @logger.info("Copying configuration")
+      FileUtils.cp_r("#{shared}/config", "#{deploy_to}/current/config")
     end
 
     # start the unicorn using init
+    @logger.info("Starting #{name} #{version} with : bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru")
     start_log = `cd #{deploy_to}/current && bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru`
     if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
       @logger.info("started new unicorn #{name} #{version}")
     else
       @logger.warn("something failed when starting unicorn for #{name} #{version}")
     end
+    FileUtils.rm("/tmp/#{img}") if File.exist?("/tmp/#{img}")
   rescue => e
     p e.message
     p e.backtrace
     @logger.error(e.message)
     status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-    @status_redis.set(repository, status)
+    @status_redis.set(name, status)
   end
   @logger.info("finished deployment for #{name} #{version}")
   status = {"status" => "started", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
@@ -207,9 +211,10 @@ def deploy(app)
     version = app['version']
     @logger.info("starting deployment for #{name} #{version}")
     status = JSON.parse(@status_redis.get(name)) if (@status_redis.get(name) != nil)
+    status ||= {"status" => "waiting", "version" => version, "started_at" => Time.now.to_s, "finished_at" => "", "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
     start_time = status['started_at']
 
-    status = {"status" => "deploying", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
+    status = {"status" => "deploying", "version" => version, "started_at" => start_time, "finished_at" => "", "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
     @status_redis.set(name, status)
     rs_dor = ""
     if is_linux?

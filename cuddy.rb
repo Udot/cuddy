@@ -4,7 +4,6 @@ require "redis"
 require "json"
 require "fog"
 require "thor"
-require "daemons"
 require "digest/sha1"
 require "yaml"
 require "fileutils"
@@ -51,13 +50,15 @@ class SimpleLogger
     write("error",msg)
   end
   def write(level, msg)
-    File.open(log_file, "a") { |f| f.puts "#{level[0].capitalize} :: #{Time.now.to_s} : #{msg}"}
+    File.open(@log_file, "a") { |f| f.puts "#{level[0].capitalize} :: #{Time.now.to_s} : #{msg}"}
   end
 end
 
 @current_path = File.expand_path(File.dirname(__FILE__))
 
 @init_config = YAML.load_file("#{@current_path}/config.yml")
+hostname = Socket.gethostbyname(Socket.gethostname).first
+@first_run = true
 
 # generate uniq token if not present
 @cuddy_token = @init_config[environment]['cuddy_token']
@@ -67,6 +68,8 @@ if @cuddy_token == nil
     YAML.dump( @init_config, out )
   end
   @cuddy_token = @init_config[environment]['cuddy_token']
+else
+  @first_run = false
 end
 
 require "#{@current_path}/lib/remote_syslog"
@@ -79,35 +82,39 @@ LOGGER = SimpleLogger.new("sinatra.log") if environment == "development"
 @redis_global = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['global_db'])
 
 # should send token to front with hostname
-hostname = Socket.gethostbyname(Socket.gethostname).first
 @identity = {"hostname" => hostname, "token" => @cuddy_token}
-@backoffice = @config['backoffice']
+
+# if set to true then part of the config will not be done (unicorn)
+@config['backoffice'] ? @backoffice = true : @backoffice = false
 
 def logger
   LOGGER
 end
 
 module EggApi
+  require 'net/http'
+  require "net/https"
   extend self
   def unicorn_config(app_name)
     code, body = get("config?app_name=#{app_name}")
     return JSON.parse(body) unless code.to_i != 200
     return nil
   end
+
+  def register(register_json)
+    return post("/api/web/register",register_json)
+  end
   private
   def get(request)
-    require 'yaml'
-    require 'net/http'
-    require "net/https"
     config = YAML.load_file("#{SRC_DIR}/config/config.yml")
-    http_r = Net::HTTP.new(config['egg_api']['host'], config['egg_api']['port'])
-    http_r.use_ssl = config['egg_api']['ssl']
+    http_r = Net::HTTP.new(@config['egg_api']['host'], @config['egg_api']['port'])
+    http_r.use_ssl = @config['egg_api']['ssl']
     response = nil
     begin
       http_r.start() do |http|
         req = Net::HTTP::Get.new('/api/web/' + request)
-        req.add_field("USERNAME", config['egg_api']['username'])
-        req.add_field("TOKEN", config['egg_api']['token'])
+        req.add_field("USERNAME", @config['egg_api']['username'])
+        req.add_field("TOKEN", @config['egg_api']['token'])
         response = http.request(req)
       end
       return [response.code, response.body]
@@ -115,6 +122,24 @@ module EggApi
       @logger.error("front server didn't answer !")
       return [503, "unavailable"]
     end
+  end
+  def post(request,payload)
+    http_r = Net::HTTP.new(@config['egg_api']['host'], @config['egg_api']['port'])
+    http_r.use_ssl = config['egg_api']['ssl']
+    response = nil
+    begin
+      http_r.start() do |http|
+        req = Net::HTTP::Post.new(request, initheader = {'Content-Type' =>'application/json'})
+        req.add_field("USERNAME", @config['egg_api']['username'])
+        req.add_field("TOKEN", @config['egg_api']['token'])
+        req.body = payload
+        req.set_form_data(payload)
+        response = http.request(req)
+      end
+    rescue Errno::ECONNREFUSED
+      return [503, "unavailable"]
+    end
+    return [response.code, response.body]
   end
 end
 
@@ -238,14 +263,13 @@ class Deploy
   def database_yml    
     return nil if (db_string == (nil || ""))
     self.database_yml += "production:\n"
-    self.database_yml +="\tadapter: postgres\n")
-    self.database_yml +="\thost: #{app['config']['db']["hostname"]}\n")
-    self.database_yml +="\tdatabase: #{app['config']['db']['database']}\n")
-    self.database_yml +="\tusername: #{app['config']['db']['username']}\n")
+    self.database_yml += "\tadapter: postgres\n"
+    self.database_yml += "\thost: #{app['config']['db']["hostname"]}\n"
+    self.database_yml += "\tdatabase: #{app['config']['db']['database']}\n"
+    self.database_yml += "\tusername: #{app['config']['db']['username']}\n"
     password = Digest::SHA1.hexdigest(db_string + @config['db_token'])
-    self.database_yml +="\tpassword: #{password}\n")
-    self.database_yml +="\tpool: 5\n\ttimeout: 5000\n")
-    end
+    self.database_yml += "\tpassword: #{password}\n"
+    self.database_yml += "\tpool: 5\n\ttimeout: 5000\n"
   end
 
   def unicorn_dummy_config
@@ -336,8 +360,12 @@ class Deploy
     begin
       @logger.info("Starting #{name} #{version} with : bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru")
       start_log = `cd #{deploy_to}/current && bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru`
+      sleep(5) # gives 5 seconds to the process to start
       if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
-        @logger.info("started new unicorn #{name} #{version}")
+        unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
+        is_running = system("kill -0 #{unicorn_pid}")
+        @logger.info("started new unicorn #{name} #{version}") if is_running
+        @logger.warn("something failed when starting unicorn for #{name} #{version}") unless is_running
       else
         @logger.warn("something failed when starting unicorn for #{name} #{version}")
       end
@@ -354,65 +382,18 @@ class Deploy
   end
 end
 
+logger.info("Starting")
+puts "Started" if environment == "development"
 
-
-# this one does care about db config
-def normal_start(app)
-  begin
-    name = app['name']
-    version = app['version']
-    @logger.info("starting deployment for #{name} #{version}")
-    status = JSON.parse(@redis.get(name)) if (@redis.get(name) != nil)
-    start_time = status['started_at']
-    # stop the app
-    stop_log = `/etc/init.d/unicorn_cuddy stop`
-    @logger.info("stopping old unicorn #{name} #{version}")
-    status = {"status" => "starting", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-    @status_redis.set(name, status)
-
-    # point the current dir to the right version
-    FileUtils.rm("/var/www/current") if File.exist?("/var/www/current")
-    FileUtils.ln_s("/var/www/#{name}/#{version}", "/var/www/current")
-
-    # putting the db config in place
-    File.open("/var/www/config/database.yml", "w") do |config_file|
-      config_file.puts("production:")
-      config_file.puts("\tadapter: postgres")
-      config_file.pust("\thost: #{app['config']['db']["hostname"]}")
-      config_file.puts("\tdatabase: #{app['config']['db']['database']}")
-      config_file.puts("\tusername: #{app['config']['db']['username']}")
-      password = Digest::SHA1.hexdigest(@config['secret_salt'] + app['config']['db']['token'])
-      config_file.puts("\tpassword: #{password}")
-      config_file.puts("\tpool: 5\n\ttimeout: 5000\n")
-    end
-
-    # unicorn config
-    File.open("/var/www/config/unicorn-config.rb", "w") do |config_file|
-      config_file.puts("listen 8080")
-      config_file.puts("worker_processes #{app['config']['unicorn']['workers']}")
-      config_file.puts("pid /var/run/unicorn_#{name}.pid")
-      # need to be replaced by syslog
-      config_file.puts("stderr_path /var/log/unicorn/stderr.log")
-      config_file.puts("stdout_path /var/log/unicorn/stdout.log")
-      config_file.puts("working_directory /var/www/current")
-      config_file.puts("user cuddy, www-data")
-    end
-
-    # start the unicorn using init
-    start_log = `/etc/init.d/unicorn_cuddy start`
-    @logger.info("started new unicorn #{name} #{version}")
-  rescue => e
-    p e.message
-    p e.backtrace
-    @logger.error(e.message)
-    status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-    @status_redis.set(repository, status)
+if (@first_run && (not @backoffice))
+  code, body = EggApi.register({"hostname" => hostname, "token" => @cuddy_token}.to_json)
+  if code.to_i == 200
+    logger.info("Registered !")
+  else
+    logger.info("Could not register !, raising exception")
+    raise LoadError, "could not register at first run !" unless (code.to_i == 200)
   end
-  @logger.info("finished deployment for #{name} #{version}")
-  status = {"status" => "started", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-  @status_redis.set(name, status)
 end
-
 
 while true
   queue = JSON.parse(@redis.get(@cuddy_token)) unless @redis.get(@cuddy_token) == nil
@@ -424,8 +405,20 @@ while true
     #      "db_string" => string,      # basis for pwd
     # }
     app = queue.pop
+    # don't do any
+    app['db_string'] == "ALREADY_DONE" ? @db_config = false : @db_config = true
     app_d = Deploy.new(app['name'], app['version'], app['db_string'])
-    deploy(app)
+    fork {
+      app_d.download        # get the new version of the app
+      app_d.extract         # extract it
+      app_d.setup_init      # prepare the end
+      app_d.stop_previous   # stop the previous version
+      # create the unicorn config only if this is not the backend server
+      app_d.configure_unicorn unless @backoffice
+      app_d.configure_database if @db_config
+      app_d.setup_pre       # create the current link, copy the config
+      app_d.start           # start the app
+    }
     @redis.set(@cuddy_token, queue.to_json)
   end
 end

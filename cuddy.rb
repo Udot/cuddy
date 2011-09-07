@@ -73,9 +73,9 @@ else
 end
 
 require "#{@current_path}/lib/remote_syslog"
-LOGGER = RemoteSyslog.new(Settings.remote_log_host,Settings.remote_log_port) if environment == "production"
-LOGGER = SimpleLogger.new("sinatra.log") if environment == "development"
 @config = YAML.load_file("#{@current_path}/config.yml")[environment]
+LOGGER = RemoteSyslog.new(@config["remote_log_host"],@config["remote_log_port"]) if environment == "production"
+LOGGER = SimpleLogger.new("sinatra.log") if environment == "development"
 # queue in
 @redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['db'])
 # global status db

@@ -1,10 +1,7 @@
 # encoding: utf-8
 require "rubygems"
-require "bundler/setup"
+require "thor"
 require "net/http"
-
-# get all the gems in
-Bundler.require(:default)
 
 module SimpleApi
   extend self

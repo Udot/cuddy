@@ -73,8 +73,8 @@ end
 
 require "#{@current_path}/lib/remote_syslog"
 @config = YAML.load_file("#{@current_path}/config.yml")[environment]
-LOGGER = RemoteSyslog.new(@config["remote_log_host"],@config["remote_log_port"]) if environment == "production"
-LOGGER = SimpleLogger.new("sinatra.log") if environment == "development"
+@logger = RemoteSyslog.new(@config["remote_log_host"],@config["remote_log_port"]) if environment == "production"
+@logger = SimpleLogger.new("sinatra.log") if environment == "development"
 # queue in
 @redis = Redis.new(:host => @config['redis']['host'], :port => @config['redis']['port'], :password => @config['redis']['password'], :db => @config['redis']['db'])
 # global status db
@@ -85,10 +85,6 @@ LOGGER = SimpleLogger.new("sinatra.log") if environment == "development"
 
 # if set to true then part of the config will not be done (unicorn)
 @config['backoffice'] ? @backoffice = true : @backoffice = false
-
-def logger
-  LOGGER
-end
 
 module EggApi
   require 'net/http'
@@ -381,15 +377,15 @@ class Deploy
   end
 end
 
-logger.info("Starting")
+@logger.info("Starting")
 puts "Started" if environment == "development"
 
 if (@first_run && (not @backoffice))
   code, body = EggApi.register({"hostname" => hostname, "token" => @cuddy_token}.to_json)
   if code.to_i == 200
-    logger.info("Registered !")
+    @logger.info("Registered !")
   else
-    logger.info("Could not register !, raising exception")
+    @logger.info("Could not register !, raising exception")
     raise LoadError, "could not register at first run !" unless (code.to_i == 200)
   end
 end

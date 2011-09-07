@@ -22,8 +22,18 @@
   "build":
     "root": "/var/build"
   "rackspace_auth_url": "https://lon.auth.api.rackspacecloud.com/v1.0"
-    "rackspace_api_key": "thekey"
-    "rackspace_username": "theusername"
-    "logfile": '/var/log/pinpin_builder/builder.log'
-    "cuddy_token": "zefqzg"
+  "rackspace_api_key": "thekey"
+  "rackspace_username": "theusername"
+  "logfile": '/var/log/pinpin_builder/builder.log'
+  "cuddy_token": "zefqzg"
+  "remote_log_host": "som.hos.t"
+  "remote_log_port": "514"
+  "db_token": "efrfergetgrthrthrthg"
+  "egg_api":
+    "host": "localhost"
+    "port": 8080
+    "ssl": false
+    "token": "rgrsetgtrstbtybthyytberheg"
+    "username": "userforapi"
+    
 

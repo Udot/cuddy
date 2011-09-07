@@ -139,17 +139,25 @@ module EggApi
 end
 
 class Deploy
-  attr_accessor :name, :version, :db_string, :database_yml, :start_time
+  attr_accessor :name, :version, :db_string, :database_yml, :start_time, :logger, :config, :redis, :redis_global
   def initialize(name, version, db_string = nil)
+    current_path = File.expand_path(File.dirname(__FILE__))
     @name = name
     @version = version
     @db_string = db_string
     @database_yml = ""
     @start_time = Time.now
+    @config = YAML.load_file("#{current_path}/config.yml")[environment]
+    @logger = RemoteSyslog.new(config["remote_log_host"],config["remote_log_port"]) if environment == "production"
+    @logger = SimpleLogger.new("sinatra.log") if environment == "development"
+    # queue in
+    @redis = Redis.new(:host => config['redis']['host'], :port => config['redis']['port'], :password => config['redis']['password'], :db => config['redis']['db'])
+    # global status db
+    @redis_global = Redis.new(:host => config['redis']['host'], :port => config['redis']['port'], :password => config['redis']['password'], :db => config['redis']['global_db'])
   end
 
   def start_time_from_redis
-    node = @redis_global.get(name)
+    node = redis_global.get(name)
     if node != nil
       self.start_time = JSON.parse(node)['started_at']
       return start_time
@@ -169,11 +177,11 @@ class Deploy
     begin
       # get the file from cloudfiles
       img = "#{name}-#{version}.tar.gz"
-      @logger.info("starting deployment for #{name} #{version}")
+      logger.info("starting deployment for #{name} #{version}")
 
       start_time = start_time_from_redis
       status = {"status" => "deploying", "version" => version, "started_at" => start_time, "finished_at" => "", "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
       rs_dor = ""
       if is_linux?
         rs_dir = "sqshed_apps"
@@ -181,28 +189,29 @@ class Deploy
         rs_dir = "sqshed_apps_test"
       end
 
-      storage = Fog::Storage.new(:provider => 'Rackspace', :rackspace_auth_url => @config["rackspace_auth_url"], :rackspace_api_key => @config["rackspace_api_key"], :rackspace_username => @config['rackspace_username'])
+      storage = Fog::Storage.new(:provider => 'Rackspace', :rackspace_auth_url => config["rackspace_auth_url"], :rackspace_api_key => config["rackspace_api_key"], :rackspace_username => config['rackspace_username'])
       directory = storage.directories.get(rs_dir)
       img_file = directory.files.get(img)
       File.open("/tmp/#{img}", "w") { |f| f.write(img_file.body) }
-      @logger.info("downloaded file #{name} #{version}") if File.exist?("/tmp/#{img}")
+      logger.info("downloaded file #{name} #{version}") if File.exist?("/tmp/#{img}")
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
   def extract
     begin
       # extract
+      img = "#{name}-#{version}.tar.gz"
       FileUtils.mkdir(deploy_to) unless File.exist?(deploy_to)
       Dir.chdir(deploy_to)
       extract_log = `tar -xzf /tmp/#{img}`
       if $?.to_i == 0
-        @logger.info("extracted #{name} #{version}") if File.exist?("/var/www/hosts/#{name}/#{version}")
+        logger.info("extracted #{name} #{version}") if File.exist?("/var/www/hosts/#{name}/#{version}")
         raise SystemCallError, "extraction of #{img} for #{name} #{version} failed" unless File.exist?("/var/www/hosts/#{name}/#{version}")
       else
         raise SystemCallError, "extraction of #{img} for #{name} #{version} failed"
@@ -211,9 +220,9 @@ class Deploy
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
@@ -226,9 +235,9 @@ class Deploy
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
@@ -244,27 +253,29 @@ class Deploy
         is_running = system("kill -0 #{unicorn_pid}")
         raise SystemCallError, "process #{unicorn_pid} for #{name} still exist"
         FileUtils.rm("#{shared}/pids/unicorn-#{name}.pid") if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
-        @logger.info("stopped old unicorn #{name} #{version}")
+        logger.info("stopped old unicorn #{name} #{version}")
       end
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
-  def database_yml    
-    return nil if (db_string == (nil || ""))
-    self.database_yml += "production:\n"
-    self.database_yml += "\tadapter: postgres\n"
-    self.database_yml += "\thost: #{app['config']['db']["hostname"]}\n"
-    self.database_yml += "\tdatabase: #{app['config']['db']['database']}\n"
-    self.database_yml += "\tusername: #{app['config']['db']['username']}\n"
-    password = Digest::SHA1.hexdigest(db_string + @config['db_token'])
-    self.database_yml += "\tpassword: #{password}\n"
-    self.database_yml += "\tpool: 5\n\ttimeout: 5000\n"
+  def database_yml_gen    
+    return nil if (db_string == (nil || "" || "ALREADY_DONE"))
+    db_yml = ""
+    db_yml += "production:\n"
+    db_yml += "\tadapter: postgres\n"
+    db_yml += "\thost: #{app['config']['db']["hostname"]}\n"
+    db_yml += "\tdatabase: #{app['config']['db']['database']}\n"
+    db_yml += "\tusername: #{app['config']['db']['username']}\n"
+    password = Digest::SHA1.hexdigest(db_string + config['db_token'])
+    db_yml += "\tpassword: #{password}\n"
+    db_yml += "\tpool: 5\n\ttimeout: 5000\n"
+    return db_yml
   end
 
   def unicorn_dummy_config
@@ -289,8 +300,8 @@ class Deploy
   def configure_database
     begin
       FileUtils.mkdir_p("/var/www/hosts/#{name}/shared/config") unless File.exist?("/var/www/hosts/#{name}/shared/config")
-      if (database_yml != nil)
-        db_yml = database_yml 
+      if (database_yml_gen != nil)
+        db_yml = database_yml_gen 
         File.open("/var/www/hosts/#{name}/shared/config/database.yml", "w") { |f| f.puts db_yml }
         return true if File.exist?("/var/www/hosts/#{name}/shared/config/database.yml")
       end
@@ -298,9 +309,9 @@ class Deploy
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
@@ -321,9 +332,9 @@ class Deploy
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
@@ -338,42 +349,42 @@ class Deploy
     
       # copy the app config (database) if present
       if File.exist?("#{shared}/config")
-        @logger.info("Copying configuration")
+        logger.info("Copying configuration")
         FileUtils.cp_r("#{shared}/config", "#{deploy_to}/current")
       end
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
   end
 
   # start the unicorn
   def start
     begin
-      @logger.info("Starting #{name} #{version} with : bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru")
+      logger.info("Starting #{name} #{version} with : bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru")
       start_log = `cd #{deploy_to}/current && bundle exec unicorn -c #{deploy_to}/current/config/unicorn.rb -D -E production #{deploy_to}/current/config.ru`
       sleep(5) # gives 5 seconds to the process to start
       if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
         unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
         is_running = system("kill -0 #{unicorn_pid}")
-        @logger.info("started new unicorn #{name} #{version}") if is_running
-        @logger.warn("something failed when starting unicorn for #{name} #{version}") unless is_running
+        logger.info("started new unicorn #{name} #{version}") if is_running
+        logger.warn("something failed when starting unicorn for #{name} #{version}") unless is_running
       else
-        @logger.warn("something failed when starting unicorn for #{name} #{version}")
+        logger.warn("something failed when starting unicorn for #{name} #{version}")
       end
     rescue => e
       p e.message
       p e.backtrace
-      @logger.error(e.message)
+      logger.error(e.message)
       status = {"status" => "failed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => e.message, "backtrace" => e.backtrace}, "identity" => @identity}.to_json
-      @redis_global.set(name, status)
+      redis_global.set(name, status)
     end
-    @logger.info("finished deployment for #{name} #{version}")
+    logger.info("finished deployment for #{name} #{version}")
     status = {"status" => "deployed", "version" => version, "started_at" => start_time, "finished_at" => Time.now, "error" => {"message" => "", "backtrace" => ""}, "identity" => @identity}.to_json
-    @redis_global.set(name, status)
+    redis_global.set(name, status)
   end
 end
 
@@ -401,7 +412,8 @@ while true
     # }
     app = queue.pop
     # don't do any
-    app['db_string'] == "ALREADY_DONE" ? @db_config = false : @db_config = true
+    @db_config = false
+    @db_config = true if app['db_string'] != "ALREADY_DONE"
     app_d = Deploy.new(app['name'], app['version'], app['db_string'])
     fork {
       app_d.download        # get the new version of the app

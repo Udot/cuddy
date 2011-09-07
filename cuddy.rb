@@ -265,7 +265,7 @@ class Deploy
   end
 
   def database_yml_gen    
-    return nil if (db_string == (nil || "" || "ALREADY_DONE"))
+    return nil if (db_string == (nil || "" || "ALREADY_DONE"))
     db_yml = ""
     db_yml += "production:\n"
     db_yml += "\tadapter: postgres\n"

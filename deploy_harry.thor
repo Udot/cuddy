@@ -6,12 +6,13 @@ require "net/http"
 module SimpleApi
   extend self
   def post(request, payload)
-    http_r = Net::HTTP.new("backup.arbousier.info", 8084)
+    config = YAML.load_file("./config.yml")
+    http_r = Net::HTTP.new(config['harry_host'], config['harry_port'])
     http_r.use_ssl = false
     response = nil
     http_r.start() do |http|
       req = Net::HTTP::Post.new(request)
-      req.add_field("TOKEN", "0769e94ae71ddc205c05a194f45494cf84cb3e54648fd")
+      req.add_field("TOKEN", config['harry_token'])
       req.body = payload
       req.set_form_data(payload)
       response = http.request(req)

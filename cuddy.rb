@@ -253,12 +253,12 @@ class Deploy
     begin
       if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
         unicorn_pid = `cat #{shared}/pids/unicorn-#{name}.pid`
-        stop_log = `kill -QUIT #{unicorn_pid}`
+        stop_log = `kill -QUIT #{unicorn_pid.chomp!}`
         #ab = system("kill -0 95252")
         # checking if the process is still running
         sleep(5) # gives 5 seconds to the process to die peacefully
-        is_running = system("kill -0 #{unicorn_pid}")
-        raise SystemCallError, "process #{unicorn_pid} for #{name} still exist"
+        #is_running = system("kill -0 #{unicorn_pid}")
+        #raise SystemCallError, "process #{unicorn_pid} for #{name} still exist"
         FileUtils.rm("#{shared}/pids/unicorn-#{name}.pid") if File.exist?("#{shared}/pids/unicorn-#{name}.pid")
         logger.info("stopped old unicorn #{name} #{version}")
       end
@@ -345,6 +345,10 @@ class Deploy
     end
   end
 
+  def cleanup
+    FileUtils.rm_rf("#{deploy_to}/#{version - 5}") if File.exist?("#{deploy_to}/#{version - 5}")
+  end
+
   # create the new current link and copy the config
   def setup_pre
     begin
@@ -427,6 +431,7 @@ while true
       app_d.extract         # extract it
       app_d.setup_init      # prepare the end
       app_d.stop_previous   # stop the previous version
+      app_d.cleanup
       # create the unicorn config only if this is not the backend server
       app_d.configure_unicorn unless @backoffice
       app_d.configure_database if @db_config

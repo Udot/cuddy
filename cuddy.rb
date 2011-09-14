@@ -146,7 +146,8 @@ module EggApi
 end
 
 class Deploy
-  attr_accessor :name, :version, :db_string, :database_yml, :start_time, :logger, :config, :redis, :redis_global
+  attr_accessor :name, :version, :db_string, :database_yml, :start_time, :logger, :config
+  attr_accessor :redis_db_status, :redis, :redis_global
   def initialize(name, version, db_string = nil)
     current_path = File.expand_path(File.dirname(__FILE__))
     @name = name
@@ -161,6 +162,7 @@ class Deploy
     @redis = Redis.new(:host => config['redis']['host'], :port => config['redis']['port'], :password => config['redis']['password'], :db => config['redis']['db'])
     # global status db
     @redis_global = Redis.new(:host => config['redis']['host'], :port => config['redis']['port'], :password => config['redis']['password'], :db => config['redis']['global_db'])
+    @redis_db_status = Redis.new(:host => config['redis']['host'], :port => config['redis']['port'], :password => config['redis']['password'], :db => config['redis']['db_status'])
   end
 
   def start_time_from_redis
@@ -271,16 +273,18 @@ class Deploy
     end
   end
 
-  def database_yml_gen    
-    return nil if (db_string == (nil || "" || "ALREADY_DONE"))
+  def database_yml_gen(db_config_hash)
+    #{"database"=>"db_test2", "username"=>"user_test2", "passwd_string"=>"o0rrSWmErQLMsOVk9hgoGx2a1YxxeOomJPSHwIzrLO", "queued"=>"destroyed user", "started_at"=>"", "finished_at"=>"2011-09-14 16:26:43 +0000"}
+    db_name = db_config_hash['database']
+    db_username = db_config_hash['username']
+    db_password = password = Digest::SHA1.hexdigest(config['db_token'] + '-' + db_config_hash['passwd_string'])
     db_yml = ""
     db_yml += "production:\n"
     db_yml += "\tadapter: postgres\n"
     db_yml += "\thost: #{app['config']['db']["hostname"]}\n"
-    db_yml += "\tdatabase: #{app['config']['db']['database']}\n"
-    db_yml += "\tusername: #{app['config']['db']['username']}\n"
-    password = Digest::SHA1.hexdigest(db_string + config['db_token'])
-    db_yml += "\tpassword: #{password}\n"
+    db_yml += "\tdatabase: #{db_name}\n"
+    db_yml += "\tusername: #{db_username}\n"
+    db_yml += "\tpassword: #{db_password}\n"
     db_yml += "\tpool: 5\n\ttimeout: 5000\n"
     return db_yml
   end
@@ -303,12 +307,14 @@ class Deploy
     return EggApi.unicorn_config(name)['config']
   end
 
-  # set the database config right, should be called only the first time (the front doesn't store the db password)
+  # set the database config using data from the redis stored db status
   def configure_database
     begin
+      app_db_config = JSON.parse(redis_db_status.get(name)) unless redis_db_status.get(name) == nil
+      raise ArgumentError, "db not found in redis db #2 (db status)" unless app_db_config != nil
       FileUtils.mkdir_p("/var/www/hosts/#{name}/shared/config") unless File.exist?("/var/www/hosts/#{name}/shared/config")
-      if (database_yml_gen != nil)
-        db_yml = database_yml_gen 
+      if not File.exist?("/var/www/hosts/#{name}/shared/config/database.yml")
+        db_yml = database_yml_gen(app_db_config)
         File.open("/var/www/hosts/#{name}/shared/config/database.yml", "w") { |f| f.puts db_yml }
         return true if File.exist?("/var/www/hosts/#{name}/shared/config/database.yml")
       end
